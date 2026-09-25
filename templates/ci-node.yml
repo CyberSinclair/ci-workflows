@@ -1,0 +1,38 @@
+# Copied from CyberSinclair/ci-workflows (templates/ci-node.yml).
+# The real work happens in the shared reusable workflows; this file only
+# decides when they run and passes project settings.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly run to catch newly published vulnerabilities in unchanged code.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Quality & tests
+    uses: CyberSinclair/ci-workflows/.github/workflows/node-ci.yml@v1
+    with:
+      working-directory: __WORKING_DIRECTORY__
+
+  security:
+    name: Security
+    uses: CyberSinclair/ci-workflows/.github/workflows/security.yml@v1
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    with:
+      working-directory: __WORKING_DIRECTORY__
+      codeql-languages: '__CODEQL_LANGUAGES__'

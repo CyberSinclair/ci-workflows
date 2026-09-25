@@ -1,0 +1,62 @@
+# Checks this repo's own workflows and scripts so a broken change isn't
+# rolled out to every project that uses them.
+name: Self-check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+  shellcheck:
+    name: Lint scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: shellcheck scripts/*.sh
+
+  setup-script:
+    name: Test setup script
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Add CI to a sample Node project in a subfolder
+        run: |
+          repo=$(mktemp -d)
+          git init -q "$repo"
+          mkdir "$repo/app"
+          echo '{"scripts":{"lint":"true","test:unit":"true"}}' > "$repo/app/package.json"
+          scripts/add-to-repo.sh "$repo" --dir app
+          grep -q 'working-directory: app' "$repo/.github/workflows/ci.yml"
+          grep -q 'directory: "/app"' "$repo/.github/dependabot.yml"
+          ! grep -rq '__[A-Z_]*__' "$repo/.github"
+      - name: Add CI to a sample Python project
+        run: |
+          repo=$(mktemp -d)
+          git init -q "$repo"
+          touch "$repo/requirements.txt"
+          scripts/add-to-repo.sh "$repo"
+          grep -q '"python"' "$repo/.github/workflows/ci.yml"
+          grep -q 'package-ecosystem: pip' "$repo/.github/dependabot.yml"

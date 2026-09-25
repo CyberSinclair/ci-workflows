@@ -1,0 +1,198 @@
+# Reusable workflow: lint, tests and build for a Node.js project.
+#
+# Runs whichever of these package.json scripts the project defines, and skips
+# the rest:
+#   lint                                  -> Lint job
+#   test:unit, test:integration,
+#   test:regression (or plain `test`)     -> Tests job
+#   build                                 -> Build job
+#   test:e2e (+ optional test:e2e:install) -> End-to-end job
+#
+# See the README for how to call it from a project.
+name: Node CI
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Folder containing package.json, relative to the repo root.
+        type: string
+        default: "."
+      node-version:
+        description: Node.js version to install.
+        type: string
+        default: "lts/*"
+      run-e2e:
+        description: Run the test:e2e script when the project defines one.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect project scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    outputs:
+      # Comma-wrapped list, e.g. ",lint,test:unit,build," so jobs can match
+      # exact names with contains(..., ',name,').
+      scripts: ${{ steps.scripts.outputs.scripts }}
+      has-lockfile: ${{ steps.scripts.outputs.has-lockfile }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - id: scripts
+        name: Read package.json scripts
+        run: |
+          scripts=$(node -e '
+            const scripts = require("./package.json").scripts || {};
+            // Ignore npm init'"'"'s placeholder test script.
+            if (/no test specified/.test(scripts.test || "")) delete scripts.test;
+            console.log(Object.keys(scripts).join(","));
+          ')
+          echo "Found scripts: $scripts"
+          echo "scripts=,$scripts," >> "$GITHUB_OUTPUT"
+          if [ -f package-lock.json ]; then
+            echo "has-lockfile=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-lockfile=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  lint:
+    name: Lint
+    needs: detect
+    if: contains(needs.detect.outputs.scripts, ',lint,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ needs.detect.outputs.has-lockfile == 'true' && 'npm' || '' }}
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install dependencies
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - run: npm run lint
+
+  test:
+    name: Unit, integration & regression tests
+    needs: detect
+    if: >-
+      contains(needs.detect.outputs.scripts, ',test:unit,') ||
+      contains(needs.detect.outputs.scripts, ',test:integration,') ||
+      contains(needs.detect.outputs.scripts, ',test:regression,') ||
+      contains(needs.detect.outputs.scripts, ',test,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      SCRIPTS: ${{ needs.detect.outputs.scripts }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ needs.detect.outputs.has-lockfile == 'true' && 'npm' || '' }}
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install dependencies
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Unit tests
+        if: contains(env.SCRIPTS, ',test:unit,')
+        run: npm run test:unit
+      - name: Integration tests
+        if: ${{ !cancelled() && contains(env.SCRIPTS, ',test:integration,') }}
+        run: npm run test:integration
+      - name: Regression tests
+        if: ${{ !cancelled() && contains(env.SCRIPTS, ',test:regression,') }}
+        run: npm run test:regression
+      - name: Tests
+        # Projects without the split scripts just use `npm test`.
+        if: >-
+          !contains(env.SCRIPTS, ',test:unit,') &&
+          !contains(env.SCRIPTS, ',test:integration,') &&
+          !contains(env.SCRIPTS, ',test:regression,')
+        run: npm test
+
+  build:
+    name: Build
+    needs: detect
+    if: contains(needs.detect.outputs.scripts, ',build,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ needs.detect.outputs.has-lockfile == 'true' && 'npm' || '' }}
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install dependencies
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      - run: npm run build
+
+  e2e:
+    name: End-to-end tests
+    needs: detect
+    if: inputs.run-e2e && contains(needs.detect.outputs.scripts, ',test:e2e,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ needs.detect.outputs.has-lockfile == 'true' && 'npm' || '' }}
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+      - name: Install dependencies
+        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Install browsers
+        env:
+          SCRIPTS: ${{ needs.detect.outputs.scripts }}
+        run: |
+          if [[ "$SCRIPTS" == *",test:e2e:install,"* ]]; then
+            npm run test:e2e:install
+          else
+            npx playwright install --with-deps
+          fi
+
+      - run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            ${{ inputs.working-directory }}/playwright-report/
+            ${{ inputs.working-directory }}/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

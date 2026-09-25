@@ -1,0 +1,17 @@
+# Copied from CyberSinclair/ci-workflows (templates/dependabot.yml).
+# Opens weekly PRs to update dependencies and the GitHub Actions used by CI.
+# Each PR runs the full CI pipeline, so broken updates are caught before merge.
+version: 2
+updates:
+  - package-ecosystem: __ECOSYSTEM__
+    directory: "__DEPENDABOT_DIRECTORY__"
+    schedule:
+      interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

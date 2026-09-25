@@ -1,0 +1,105 @@
+# Reusable workflow: security scans.
+#
+#   CodeQL             Static application security testing (SAST) plus code
+#                      quality queries. Results appear in the repo's
+#                      Security > Code scanning tab and as a PR check.
+#   Dependency review  On pull requests, blocks newly added dependencies that
+#                      have known vulnerabilities (any ecosystem GitHub
+#                      understands: npm, pip, bundler, ...).
+#   npm audit          Checks every installed npm dependency (new and
+#                      existing) against the advisory database.
+#
+# The caller must grant `security-events: write` (see the README).
+name: Security
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Folder containing package.json for npm audit, relative to the repo root.
+        type: string
+        default: "."
+      codeql-languages:
+        description: >-
+          JSON list of CodeQL languages, e.g. '["javascript-typescript", "actions"]'
+          or '["python", "actions"]'.
+        type: string
+        default: '["javascript-typescript", "actions"]'
+      codeql-queries:
+        description: CodeQL query suite (security-extended or security-and-quality).
+        type: string
+        default: security-and-quality
+      dependency-review-severity:
+        description: Fail a PR that adds a dependency with a vulnerability at or above this severity (low, moderate, high, critical).
+        type: string
+        default: moderate
+      npm-audit-level:
+        description: Fail when any npm dependency has a vulnerability at or above this level (low, moderate, high, critical).
+        type: string
+        default: high
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(inputs.codeql-languages) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          # Interpreted languages (JS/TS, Python, Ruby, Actions) need no build.
+          build-mode: none
+          queries: ${{ inputs.codeql-queries }}
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@v5.0.0
+        with:
+          fail-on-severity: ${{ inputs.dependency-review-severity }}
+          # The summary goes to the job summary; commenting would need write access.
+          comment-summary-in-pr: never
+
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Audit npm dependencies
+        env:
+          AUDIT_LEVEL: ${{ inputs.npm-audit-level }}
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo "No package-lock.json in this folder; skipping npm audit."
+            exit 0
+          fi
+          npm audit --audit-level="$AUDIT_LEVEL"
