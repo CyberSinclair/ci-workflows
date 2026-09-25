@@ -60,16 +60,36 @@ It writes:
 
 For Node projects it also lists which standard scripts are present or missing. It never overwrites existing files unless you pass `--force`.
 
-Then commit, push, and do the one-time setup below.
+Then do the one-time setup below.
 
 ### One-time setup per repository
 
-1. **Make the checks required.** A failing check is only a warning until you require it. Go to **Settings → Rules → Rulesets → New branch ruleset**:
-   - Target the default branch.
-   - Enable **Require a pull request before merging**.
-   - Enable **Require status checks to pass**, and add the checks from a CI run on that repo, e.g. `Quality & tests / Lint`, `Quality & tests / Unit, integration & regression tests`, `Quality & tests / Build`, `Quality & tests / End-to-end tests`, `Security / npm audit`, `Security / Dependency review`.
-   - Enable **Require code scanning results** with the CodeQL tool, so PRs that add high-severity security alerts can't merge.
-2. **Turn on security features** in **Settings → Advanced Security** (all free for public repos): Dependency graph, Dependabot alerts, Dependabot security updates, and Secret protection (secret scanning and push protection).
+These steps use the [GitHub CLI](https://cli.github.com) (`gh`), logged in with `gh auth login`.
+
+1. **Turn on the security features** before the first CI run. Dependency review fails without the dependency graph. All of these are free for public repos:
+   ```sh
+   repo=CyberSinclair/my-project
+   gh api -X PUT repos/$repo/vulnerability-alerts       # Dependabot alerts (and dependency graph)
+   gh api -X PUT repos/$repo/automated-security-fixes   # Dependabot security updates
+   gh api -X PATCH repos/$repo --input - <<< '{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}'
+   ```
+   Or use **Settings → Advanced Security** on GitHub.
+2. **Open a PR with the CI files** from `add-to-repo.sh`, and check it passes.
+3. **Make the checks required.** A failing check is only a warning until you require it:
+   ```sh
+   scripts/protect-branch.sh CyberSinclair/my-project --pr <number>   # before the CI is merged
+   scripts/protect-branch.sh CyberSinclair/my-project                 # after (uses the latest run on the default branch)
+   ```
+   This creates a **Protect default branch** ruleset that:
+   - requires a pull request, with no approvals needed, so you can merge your own;
+   - requires every check from that CI run to pass;
+   - requires CodeQL results and blocks new high-severity alerts, when the repo runs CodeQL;
+   - blocks force-pushes and deleting the branch.
+
+   Add `--dry-run` to preview the ruleset. Re-run the script after adding checks to a repo's CI to update the ruleset in place.
+4. **Merge the PR.**
+
+Rulesets are enforced on public repos with GitHub Free. Private repos need GitHub Pro or a paid organisation plan, as does CodeQL on private repos.
 
 ## Setting up tests in a Node project
 

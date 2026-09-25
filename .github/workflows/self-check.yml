@@ -34,6 +34,27 @@ jobs:
           persist-credentials: false
       - run: shellcheck scripts/*.sh
 
+  protect-branch-script:
+    name: Test protect-branch script
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Dry-run against this repository's own self-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          scripts/protect-branch.sh "$REPO" --workflow self-check.yml --dry-run | tee ruleset.txt
+          grep -q -- '- Lint workflows' ruleset.txt
+          grep -q 'Code scanning rule: false' ruleset.txt
+          sed '1,/^Code scanning/d' ruleset.txt | jq -e '.rules | map(.type) | index("required_status_checks")'
+
   setup-script:
     name: Test setup script
     runs-on: ubuntu-latest
