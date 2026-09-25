@@ -54,7 +54,7 @@ jobs:
           grep -q 'working-directory: app' "$repo/.github/workflows/ci.yml"
           grep -q 'directory: "/app"' "$repo/.github/dependabot.yml"
           grep -Eq 'node-ci\.yml@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+$' "$repo/.github/workflows/ci.yml"
-          ! grep -rq '__[A-Z_]*__' "$repo/.github"
+          if grep -rn '__[A-Z_]*__' "$repo/.github"; then echo "Unfilled template placeholder"; exit 1; fi
       - name: Add CI to a sample Python project
         run: |
           repo=$(mktemp -d)
@@ -71,7 +71,7 @@ jobs:
           touch "$repo/game.py"
           git -C "$repo" add .
           scripts/add-to-repo.sh "$repo"
-          ! grep -q 'package-ecosystem: pip' "$repo/.github/dependabot.yml"
+          if grep -q 'package-ecosystem: pip' "$repo/.github/dependabot.yml"; then echo "Unexpected pip entry"; exit 1; fi
           grep -q 'package-ecosystem: github-actions' "$repo/.github/dependabot.yml"
       - name: Add CI to a sample MakeCode project on master
         run: |
@@ -85,4 +85,4 @@ jobs:
           grep -q 'makecode-ci\.yml@' "$repo/.github/workflows/ci.yml"
           grep -q 'branches: \[master\]' "$repo/.github/workflows/ci.yml"
           grep -q "codeql-languages: '\[\"javascript-typescript\", \"actions\"\]'" "$repo/.github/workflows/ci.yml"
-          ! grep -rq '__[A-Z_]*__' "$repo/.github"
+          if grep -rn '__[A-Z_]*__' "$repo/.github"; then echo "Unfilled template placeholder"; exit 1; fi
