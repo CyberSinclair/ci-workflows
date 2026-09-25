@@ -115,14 +115,29 @@ Pass these under `with:` in a project's `ci.yml`.
 
 CodeQL runs with `build-mode: none`, which supports JavaScript/TypeScript, Python, Ruby and GitHub Actions. Compiled languages such as Go or C++ need a build step added.
 
-## Versions
+## Versions and releases
 
-Projects call the workflows at the `v1` tag (`...node-ci.yml@v1`).
+Projects pin the shared workflows to a release's **commit hash**, with the version in a comment:
 
-- **Compatible change** (bug fix, new optional input): merge to `main`, then move the tag so every project picks it up:
-  ```sh
-  git tag -f v1 && git push -f origin v1
-  ```
-- **Breaking change** (renamed input, different script names): tag `v2`, and update projects one at a time by changing `@v1` to `@v2` in their `ci.yml`.
+```yaml
+uses: CyberSinclair/ci-workflows/.github/workflows/node-ci.yml@<40-character commit hash> # v1.0.0
+```
+
+A tag like `@v1` can be moved to different code later, but a commit hash can't. So a project only runs pipeline code it has already accepted, even if this repo were compromised. CodeQL flags unpinned references for this reason.
+
+Updates still reach every project automatically. Each project's Dependabot config watches GitHub Actions, so a new release here makes Dependabot open a PR in each project that bumps the hash and comment. That PR runs the full pipeline, so you see whether the new version works before merging it.
+
+**To release a change:** merge it to `main`, then tag a new [semantic version](https://semver.org):
+
+```sh
+git tag -a v1.0.1 -m "Short description of the change"
+git push origin v1.0.1
+```
+
+- **Patch** (`v1.0.1`): bug fixes.
+- **Minor** (`v1.1.0`): new optional inputs or checks.
+- **Major** (`v2.0.0`): breaking changes, e.g. renamed inputs or script names. Say what projects need to change in the tag message.
+
+`scripts/add-to-repo.sh` pins new projects to the latest release. Use `--ref v1.0.0` to choose a specific one.
 
 Changes to this repo are checked by its own [Self-check](.github/workflows/self-check.yml) workflow. It lints the workflows with actionlint and the script with ShellCheck, and tests the setup script on sample projects.

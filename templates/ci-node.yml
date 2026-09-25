@@ -22,13 +22,13 @@ permissions:
 jobs:
   checks:
     name: Quality & tests
-    uses: CyberSinclair/ci-workflows/.github/workflows/node-ci.yml@v1
+    uses: CyberSinclair/ci-workflows/.github/workflows/node-ci.yml@__CI_WORKFLOWS_SHA__ # __CI_WORKFLOWS_VERSION__
     with:
       working-directory: __WORKING_DIRECTORY__
 
   security:
     name: Security
-    uses: CyberSinclair/ci-workflows/.github/workflows/security.yml@v1
+    uses: CyberSinclair/ci-workflows/.github/workflows/security.yml@__CI_WORKFLOWS_SHA__ # __CI_WORKFLOWS_VERSION__
     permissions:
       actions: read
       contents: read

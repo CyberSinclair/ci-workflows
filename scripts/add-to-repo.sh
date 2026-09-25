@@ -7,28 +7,36 @@
 #   --dir <folder>   Project folder inside the repo (where package.json,
 #                    pyproject.toml or Gemfile lives). Default: repo root.
 #   --type <type>    node, python or ruby. Detected automatically if omitted.
+#   --ref <tag>      Release of ci-workflows to use, e.g. v1.2.0.
+#                    Default: the latest vX.Y.Z tag.
 #   --force          Overwrite existing .github/workflows/ci.yml and
 #                    .github/dependabot.yml.
+#
+# The generated ci.yml pins the shared workflows to the release's commit
+# hash; Dependabot then opens PRs when newer releases are published.
 #
 # Example: scripts/add-to-repo.sh ../Directors-notes --dir app
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-templates="$here/../templates"
+root="$here/.."
+templates="$root/templates"
 
 usage() {
-  sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
 repo=""
 dir="."
 type=""
+ref=""
 force=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir) dir="$2"; shift 2 ;;
     --type) type="$2"; shift 2 ;;
+    --ref) ref="$2"; shift 2 ;;
     --force) force=true; shift ;;
     -h | --help) usage ;;
     -*) echo "Unknown option: $1" >&2; usage 1 ;;
@@ -69,6 +77,15 @@ esac
 dependabot_dir="/"
 [ "$dir" = "." ] || dependabot_dir="/$dir"
 
+# Pin to a release's commit hash: a tag can be moved, a commit can't.
+git -C "$root" fetch --tags --quiet 2>/dev/null || true
+if [ -z "$ref" ]; then
+  ref="$(git -C "$root" tag --list 'v*.*.*' --sort=-v:refname | head -n 1)"
+  [ -n "$ref" ] || { echo "No vX.Y.Z release tag found in ci-workflows; pass --ref" >&2; exit 1; }
+fi
+sha="$(git -C "$root" rev-list -n 1 "$ref" 2>/dev/null)" ||
+  { echo "Unknown ci-workflows release: $ref" >&2; exit 1; }
+
 # write <template> <path in repo>
 write() {
   local src="$templates/$1" dest="$repo/$2"
@@ -81,11 +98,13 @@ write() {
     -e "s|__CODEQL_LANGUAGES__|$languages|g" \
     -e "s|__ECOSYSTEM__|$ecosystem|g" \
     -e "s|__DEPENDABOT_DIRECTORY__|$dependabot_dir|g" \
+    -e "s|__CI_WORKFLOWS_SHA__|$sha|g" \
+    -e "s|__CI_WORKFLOWS_VERSION__|$ref|g" \
     "$src" >"$dest"
   echo "  write  $2"
 }
 
-echo "Adding $type CI to $repo (project folder: $dir)"
+echo "Adding $type CI to $repo (project folder: $dir, ci-workflows $ref = ${sha:0:7})"
 write "$template" .github/workflows/ci.yml
 write dependabot.yml .github/dependabot.yml
 
