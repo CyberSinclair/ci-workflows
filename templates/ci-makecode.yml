@@ -1,4 +1,4 @@
-# Copied from CyberSinclair/ci-workflows (templates/ci-node.yml).
+# Copied from CyberSinclair/ci-workflows (templates/ci-makecode.yml).
 # The real work happens in the shared reusable workflows; this file only
 # decides when they run and passes project settings.
 name: CI
@@ -21,8 +21,8 @@ permissions:
 
 jobs:
   checks:
-    name: Quality & tests
-    uses: CyberSinclair/ci-workflows/.github/workflows/node-ci.yml@__CI_WORKFLOWS_SHA__ # __CI_WORKFLOWS_VERSION__
+    name: MakeCode
+    uses: CyberSinclair/ci-workflows/.github/workflows/makecode-ci.yml@__CI_WORKFLOWS_SHA__ # __CI_WORKFLOWS_VERSION__
     with:
       working-directory: __WORKING_DIRECTORY__
 
@@ -34,5 +34,4 @@ jobs:
       contents: read
       security-events: write
     with:
-      working-directory: __WORKING_DIRECTORY__
       codeql-languages: '__CODEQL_LANGUAGES__'

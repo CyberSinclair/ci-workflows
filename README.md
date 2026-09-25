@@ -6,20 +6,21 @@ Shared GitHub Actions pipeline for my repositories. Every pull request gets:
 |---|---|---|
 | **Lint** | Code-quality rules | the project's `lint` script (e.g. oxlint, ESLint) |
 | **Unit, integration & regression tests** | Tests of single pieces, pieces working together, and previously fixed bugs | the project's `test:unit`, `test:integration`, `test:regression` scripts (e.g. Vitest) |
-| **Build** | Proves the project still builds | the project's `build` script |
+| **Build** | Proves the project still builds | the project's `build` script, or `pxt build` for MakeCode projects |
 | **End-to-end tests** | Drives the real app in a browser | the project's `test:e2e` script (e.g. Playwright) |
 | **CodeQL** | Static application security testing (SAST) and code-quality queries | [CodeQL](https://codeql.github.com/) |
 | **Dependency review** | Blocks PRs that *add* a dependency with a known vulnerability | [dependency-review-action](https://github.com/actions/dependency-review-action) |
 | **npm audit** | Checks *all* npm dependencies for known vulnerabilities | `npm audit` |
 | **Dependabot** | Weekly PRs that update dependencies and actions | [Dependabot](https://docs.github.com/code-security/dependabot) |
 
-The pipeline also runs on pushes to `main` and weekly, so new vulnerabilities in unchanged code are still found.
+The pipeline also runs on pushes to the default branch and weekly, so new vulnerabilities in unchanged code are still found.
 
 ## How it works
 
-The logic lives here, in two [reusable workflows](https://docs.github.com/actions/using-workflows/reusing-workflows):
+The logic lives here, in [reusable workflows](https://docs.github.com/actions/using-workflows/reusing-workflows):
 
 - [`node-ci.yml`](.github/workflows/node-ci.yml): lint, tests, build and end-to-end tests for Node.js projects.
+- [`makecode-ci.yml`](.github/workflows/makecode-ci.yml): compiles [MakeCode](https://makecode.com) projects (e.g. micro:bit) with `pxt`, failing on any compile error.
 - [`security.yml`](.github/workflows/security.yml): CodeQL, dependency review and npm audit, for any language CodeQL supports.
 
 Each project has one short `.github/workflows/ci.yml` that calls them. Fix or improve the pipeline here once and every project picks it up.
@@ -46,10 +47,16 @@ scripts/add-to-repo.sh ../my-project                # project at the repo root
 scripts/add-to-repo.sh ../Directors-notes --dir app # project in a subfolder
 ```
 
-The script detects Node, Python or Ruby projects (override with `--type`). It writes:
+The script works out the settings from the repo:
 
-- `.github/workflows/ci.yml`: calls the shared workflows. Node projects get everything. Python and Ruby projects get the security scans; add a job for their own tests.
-- `.github/dependabot.yml`: weekly dependency and action updates.
+- **Project type** (override with `--type`): `pxt.json` means MakeCode, `package.json` means Node, `.py` files mean Python, and a `Gemfile` means Ruby.
+- **CodeQL languages:** only the languages the repo actually contains. CodeQL fails if asked to scan a language with no code.
+- **Default branch** (`main`, `master`, ...) for the push trigger.
+
+It writes:
+
+- `.github/workflows/ci.yml`: calls the shared workflows. Node projects get everything, and MakeCode projects get the build plus security scans. Python and Ruby projects get the security scans; add a job for their own tests.
+- `.github/dependabot.yml`: weekly updates for GitHub Actions, including new releases of this repo, plus the project's packages when it has a dependency file (`package.json`, `requirements.txt`/`pyproject.toml`, `Gemfile`).
 
 For Node projects it also lists which standard scripts are present or missing. It never overwrites existing files unless you pass `--force`.
 
@@ -58,7 +65,7 @@ Then commit, push, and do the one-time setup below.
 ### One-time setup per repository
 
 1. **Make the checks required.** A failing check is only a warning until you require it. Go to **Settings → Rules → Rulesets → New branch ruleset**:
-   - Target the default branch (`main`).
+   - Target the default branch.
    - Enable **Require a pull request before merging**.
    - Enable **Require status checks to pass**, and add the checks from a CI run on that repo, e.g. `Quality & tests / Lint`, `Quality & tests / Unit, integration & regression tests`, `Quality & tests / Build`, `Quality & tests / End-to-end tests`, `Security / npm audit`, `Security / Dependency review`.
    - Enable **Require code scanning results** with the CodeQL tool, so PRs that add high-severity security alerts can't merge.

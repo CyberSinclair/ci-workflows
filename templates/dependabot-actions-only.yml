@@ -1,0 +1,10 @@
+# Copied from CyberSinclair/ci-workflows (templates/dependabot-actions-only.yml).
+# Opens weekly PRs to update the GitHub Actions used by CI, including new
+# releases of the shared ci-workflows. (This project has no package
+# manifest for Dependabot to update.)
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

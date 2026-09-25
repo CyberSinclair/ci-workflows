@@ -5,8 +5,8 @@
 #
 # Options:
 #   --dir <folder>   Project folder inside the repo (where package.json,
-#                    pyproject.toml or Gemfile lives). Default: repo root.
-#   --type <type>    node, python or ruby. Detected automatically if omitted.
+#                    pxt.json, pyproject.toml or Gemfile lives). Default: root.
+#   --type <type>    node, makecode, python or ruby. Detected if omitted.
 #   --ref <tag>      Release of ci-workflows to use, e.g. v1.2.0.
 #                    Default: the latest vX.Y.Z tag.
 #   --force          Overwrite existing .github/workflows/ci.yml and
@@ -54,25 +54,55 @@ dir="${dir%/}"
 project="$repo/$dir"
 [ -d "$project" ] || { echo "Folder not found: $project" >&2; exit 1; }
 
+# Files tracked in the project folder (ignores node_modules and other ignored files).
+files="$(git -C "$project" ls-files)"
+has_file() { grep -Eq "$1" <<<"$files"; }
+
 if [ -z "$type" ]; then
-  if [ -f "$project/package.json" ]; then
+  # pxt.json first: MakeCode projects also ship a Gemfile for GitHub Pages.
+  if [ -f "$project/pxt.json" ]; then
+    type=makecode
+  elif [ -f "$project/package.json" ]; then
     type=node
-  elif [ -f "$project/pyproject.toml" ] || [ -f "$project/requirements.txt" ] || [ -f "$project/setup.py" ]; then
+  elif has_file '\.py$'; then
     type=python
   elif [ -f "$project/Gemfile" ]; then
     type=ruby
   else
-    echo "Could not detect the project type in $project; pass --type node|python|ruby" >&2
+    echo "Could not detect the project type in $project; pass --type node|makecode|python|ruby" >&2
     exit 1
   fi
 fi
 
 case "$type" in
-  node) template=ci-node.yml; ecosystem=npm; languages='["javascript-typescript", "actions"]' ;;
-  python) template=ci-security-only.yml; ecosystem=pip; languages='["python", "actions"]' ;;
-  ruby) template=ci-security-only.yml; ecosystem=bundler; languages='["ruby", "actions"]' ;;
-  *) echo "Unsupported type: $type (expected node, python or ruby)" >&2; exit 1 ;;
+  node) template=ci-node.yml; ecosystem=npm ;;
+  makecode) template=ci-makecode.yml; ecosystem="" ;;
+  python)
+    template=ci-security-only.yml
+    ecosystem=""
+    if [ -f "$project/requirements.txt" ] || [ -f "$project/pyproject.toml" ] || [ -f "$project/setup.py" ]; then
+      ecosystem=pip
+    fi
+    ;;
+  ruby) template=ci-security-only.yml; ecosystem=bundler ;;
+  *) echo "Unsupported type: $type (expected node, makecode, python or ruby)" >&2; exit 1 ;;
 esac
+
+# CodeQL fails when asked to scan a language with no source files, so only
+# list languages the repo actually contains. The ci.yml added here is
+# always scanned as "actions".
+all_files="$(git -C "$repo" ls-files)"
+languages='"actions"'
+grep -Eq '\.(js|jsx|mjs|cjs|ts|tsx)$' <<<"$all_files" && languages="\"javascript-typescript\", $languages"
+grep -Eq '\.py$' <<<"$all_files" && languages="\"python\", $languages"
+grep -Eq '\.rb$' <<<"$all_files" && languages="\"ruby\", $languages"
+languages="[$languages]"
+
+# The repo's default branch, for the push trigger (main, master, ...).
+branch="$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+branch="${branch#origin/}"
+[ -n "$branch" ] || branch="$(git -C "$repo" branch --show-current)"
+[ -n "$branch" ] || branch=main
 
 dependabot_dir="/"
 [ "$dir" = "." ] || dependabot_dir="/$dir"
@@ -98,15 +128,21 @@ write() {
     -e "s|__CODEQL_LANGUAGES__|$languages|g" \
     -e "s|__ECOSYSTEM__|$ecosystem|g" \
     -e "s|__DEPENDABOT_DIRECTORY__|$dependabot_dir|g" \
+    -e "s|__DEFAULT_BRANCH__|$branch|g" \
     -e "s|__CI_WORKFLOWS_SHA__|$sha|g" \
     -e "s|__CI_WORKFLOWS_VERSION__|$ref|g" \
     "$src" >"$dest"
   echo "  write  $2"
 }
 
-echo "Adding $type CI to $repo (project folder: $dir, ci-workflows $ref = ${sha:0:7})"
+echo "Adding $type CI to $repo"
+echo "  folder: $dir, branch: $branch, CodeQL: $languages, ci-workflows: $ref (${sha:0:7})"
 write "$template" .github/workflows/ci.yml
-write dependabot.yml .github/dependabot.yml
+if [ -n "$ecosystem" ]; then
+  write dependabot.yml .github/dependabot.yml
+else
+  write dependabot-actions-only.yml .github/dependabot.yml
+fi
 
 if [ "$type" = node ]; then
   echo

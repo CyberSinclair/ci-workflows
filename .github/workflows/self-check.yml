@@ -59,7 +59,30 @@ jobs:
         run: |
           repo=$(mktemp -d)
           git init -q "$repo"
-          touch "$repo/requirements.txt"
+          touch "$repo/requirements.txt" "$repo/main.py"
+          git -C "$repo" add .
           scripts/add-to-repo.sh "$repo"
-          grep -q '"python"' "$repo/.github/workflows/ci.yml"
+          grep -q "codeql-languages: '\[\"python\", \"actions\"\]'" "$repo/.github/workflows/ci.yml"
           grep -q 'package-ecosystem: pip' "$repo/.github/dependabot.yml"
+      - name: Add CI to a Python project without a dependency file
+        run: |
+          repo=$(mktemp -d)
+          git init -q "$repo"
+          touch "$repo/game.py"
+          git -C "$repo" add .
+          scripts/add-to-repo.sh "$repo"
+          ! grep -q 'package-ecosystem: pip' "$repo/.github/dependabot.yml"
+          grep -q 'package-ecosystem: github-actions' "$repo/.github/dependabot.yml"
+      - name: Add CI to a sample MakeCode project on master
+        run: |
+          repo=$(mktemp -d)
+          git init -q -b master "$repo"
+          # MakeCode projects also ship a Gemfile; it must not be detected as Ruby.
+          echo '{"supportedTargets":["microbit"]}' > "$repo/pxt.json"
+          touch "$repo/main.ts" "$repo/Gemfile"
+          git -C "$repo" add .
+          scripts/add-to-repo.sh "$repo"
+          grep -q 'makecode-ci\.yml@' "$repo/.github/workflows/ci.yml"
+          grep -q 'branches: \[master\]' "$repo/.github/workflows/ci.yml"
+          grep -q "codeql-languages: '\[\"javascript-typescript\", \"actions\"\]'" "$repo/.github/workflows/ci.yml"
+          ! grep -rq '__[A-Z_]*__' "$repo/.github"

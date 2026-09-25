@@ -1,0 +1,53 @@
+# Reusable workflow: compile a Microsoft MakeCode project (e.g. micro:bit).
+#
+# Uses the pxt command-line tool to download the target named in pxt.json,
+# install the project's extensions and build it. The build fails on any
+# TypeScript/Blocks compile error.
+name: MakeCode CI
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Folder containing pxt.json, relative to the repo root.
+        type: string
+        default: "."
+      node-version:
+        description: Node.js version to install.
+        type: string
+        default: "lts/*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install pxt and the project's target
+        run: |
+          npm install -g pxt
+          target=$(node -e '
+            const pxt = require("./pxt.json");
+            console.log(pxt.supportedTargets?.[0] || pxt.targetVersions?.targetId || "microbit");
+          ')
+          echo "MakeCode target: $target"
+          pxt target "$target"
+
+      - name: Install extensions
+        run: pxt install
+
+      - name: Build
+        run: pxt build --cloud
