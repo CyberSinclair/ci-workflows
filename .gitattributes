@@ -1,0 +1,2 @@
+# Keep LF line endings so scripts and workflows work on every OS.
+* text=auto eol=lf
